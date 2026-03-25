@@ -14,12 +14,16 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, MessageSquare, Clock, Filter, CheckCircle2 } from "lucide-react";
+import { Plus, MessageSquare, Clock, Filter, CheckCircle2, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { setDoc, doc } from "firebase/firestore";
 
 export default function RequestsPage() {
   const { user, userData } = useAuth();
+  const router = useRouter();
   const [requests, setRequests] = useState<any[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [newRequest, setNewRequest] = useState({ title: "", description: "", category: "Notes" });
 
   useEffect(() => {
@@ -43,6 +47,45 @@ export default function RequestsPage() {
     });
     setIsModalOpen(false);
     setNewRequest({ title: "", description: "", category: "Notes" });
+  };
+
+  const handleAcceptRequest = async (req: any) => {
+    if (!user || user.uid === req.authorId) return;
+    setAcceptingId(req.id);
+    
+    try {
+      const convoId = [user.uid, req.authorId].sort().join("_");
+      const convoRef = doc(db, "conversations", convoId);
+      
+      const convoData = {
+        participants: [user.uid, req.authorId],
+        participantNames: {
+          [user.uid]: userData?.displayName || user.displayName,
+          [req.authorId]: req.authorUsername
+        },
+        status: "active", // Help requests skip the "pending" state because it's an explicit response
+        lastMessage: `I'd like to help with your request: ${req.title}`,
+        lastMessageTime: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        type: "help_request",
+        requestId: req.id
+      };
+
+      await setDoc(convoRef, convoData, { merge: true });
+      
+      // Add first automated message
+      await addDoc(collection(db, "conversations", convoId, "messages"), {
+        text: convoData.lastMessage,
+        senderId: user.uid,
+        createdAt: serverTimestamp(),
+      });
+
+      router.push(`/chat?convId=${convoId}`);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAcceptingId(null);
+    }
   };
 
   return (
@@ -91,8 +134,12 @@ export default function RequestsPage() {
                 
                 <div className="flex items-center justify-between pt-4 border-t border-white/5">
                   <p className="text-xs text-gray-500 italic">Requested by @{req.authorUsername}</p>
-                  <button className="flex items-center gap-2 text-neon-green text-sm font-bold hover:underline">
-                    <MessageSquare size={16} />
+                  <button 
+                    onClick={() => handleAcceptRequest(req)}
+                    disabled={acceptingId === req.id || user?.uid === req.authorId}
+                    className="flex items-center gap-2 text-neon-green text-sm font-bold hover:underline disabled:opacity-50"
+                  >
+                    {acceptingId === req.id ? <Loader2 size={16} className="animate-spin" /> : <MessageSquare size={16} />}
                     Accept & Chat
                   </button>
                 </div>

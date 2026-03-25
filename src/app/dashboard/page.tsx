@@ -6,7 +6,11 @@ import {
   query, 
   orderBy, 
   onSnapshot, 
-  addDoc, 
+  addDoc,
+  doc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
   serverTimestamp 
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -24,14 +28,16 @@ export default function FeedPage() {
   useEffect(() => {
     const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const postsData = snapshot.docs.map(doc => ({
+      setPosts(snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      }));
-      setPosts(postsData);
+      })));
     });
     return () => unsubscribe();
   }, []);
+
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState("");
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +60,59 @@ export default function FeedPage() {
       console.error(err);
     } finally {
       setIsPosting(false);
+    }
+  };
+
+  const handleLike = async (postId: string, currentLikes: string[]) => {
+    if (!user) return;
+    const docRef = doc(db, "posts", postId);
+    const isLiked = currentLikes?.includes(user.uid);
+    
+    try {
+      await updateDoc(docRef, {
+        likes: isLiked ? arrayRemove(user.uid) : arrayUnion(user.uid)
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSendComment = async (postId: string) => {
+    if (!commentText.trim() || !user) return;
+    const docRef = doc(db, "posts", postId);
+    
+    try {
+      await addDoc(collection(db, "posts", postId, "comments"), {
+        text: commentText,
+        authorId: user.uid,
+        authorName: userData?.displayName || user.displayName,
+        authorUsername: userData?.username,
+        createdAt: serverTimestamp(),
+      });
+      
+      const post = posts.find(p => p.id === postId);
+      await updateDoc(docRef, {
+        commentsCount: (post?.commentsCount || 0) + 1
+      });
+      
+      setCommentText("");
+      setActiveCommentId(null);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleShare = (post: any) => {
+    const shareText = `Check out this post on CampusHub: ${post.content}`;
+    if (navigator.share) {
+      navigator.share({
+        title: "CampusHub Post",
+        text: shareText,
+        url: window.location.href,
+      }).catch(console.error);
+    } else {
+      navigator.clipboard.writeText(shareText + " " + window.location.href);
+      alert("Post link copied to clipboard!");
     }
   };
 
@@ -129,18 +188,60 @@ export default function FeedPage() {
                 </p>
 
                 <div className="flex items-center gap-6 pt-4 border-t border-white/5">
-                  <button className="flex items-center gap-2 text-xs text-gray-400 hover:text-neon-green transition-colors group">
-                    <Heart size={18} className="group-hover:fill-neon-green" />
+                  <button 
+                    onClick={() => handleLike(post.id, post.likes || [])}
+                    className={`flex items-center gap-2 text-xs transition-colors group ${
+                      post.likes?.includes(user?.uid) ? "text-neon-green" : "text-gray-400 hover:text-neon-green"
+                    }`}
+                  >
+                    <Heart size={18} className={post.likes?.includes(user?.uid) ? "fill-neon-green" : "group-hover:fill-neon-green"} />
                     <span>{post.likes?.length || 0}</span>
                   </button>
-                  <button className="flex items-center gap-2 text-xs text-gray-400 hover:text-neon-green transition-colors">
+                  <button 
+                    onClick={() => setActiveCommentId(activeCommentId === post.id ? null : post.id)}
+                    className={`flex items-center gap-2 text-xs transition-colors ${
+                      activeCommentId === post.id ? "text-neon-green" : "text-gray-400 hover:text-neon-green"
+                    }`}
+                  >
                     <MessageCircle size={18} />
                     <span>{post.commentsCount || 0}</span>
                   </button>
-                  <button className="flex items-center gap-2 text-xs text-gray-400 hover:text-neon-green transition-colors ml-auto">
+                  <button 
+                    onClick={() => handleShare(post)}
+                    className="flex items-center gap-2 text-xs text-gray-400 hover:text-neon-green transition-colors ml-auto"
+                  >
                     <Share2 size={18} />
                   </button>
                 </div>
+
+                <AnimatePresence>
+                  {activeCommentId === post.id && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="pt-2 space-y-4 overflow-hidden"
+                    >
+                      <div className="flex gap-3 pt-2">
+                        <input
+                          autoFocus
+                          value={commentText}
+                          onChange={(e) => setCommentText(e.target.value)}
+                          placeholder="Write a comment..."
+                          className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-neon-green"
+                          onKeyPress={(e) => e.key === "Enter" && handleSendComment(post.id)}
+                        />
+                        <button 
+                          onClick={() => handleSendComment(post.id)}
+                          disabled={!commentText.trim()}
+                          className="text-neon-green p-2 disabled:opacity-50"
+                        >
+                          <Send size={16} />
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             ))}
           </AnimatePresence>

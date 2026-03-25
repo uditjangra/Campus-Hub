@@ -12,8 +12,9 @@ import {
   setPersistence,
   browserLocalPersistence
 } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { auth, db, storage } from "@/lib/firebase";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 interface AuthContextType {
   user: User | null;
@@ -22,6 +23,8 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
+  updateProfile: (data: Partial<any>) => Promise<void>;
+  uploadProfilePhoto: (file: File) => Promise<string>;
   logout: () => Promise<void>;
   error: string | null;
 }
@@ -33,6 +36,8 @@ const AuthContext = createContext<AuthContextType>({
   signInWithGoogle: async () => {},
   signInWithEmail: async () => {},
   signUpWithEmail: async () => {},
+  updateProfile: async () => {},
+  uploadProfilePhoto: async () => "",
   logout: async () => {},
   error: null,
 });
@@ -133,6 +138,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         photoURL: null,
         username: email.split("@")[0],
         createdAt: new Date().toISOString(),
+        completedOnboarding: false,
         branch: "",
         year: "",
         bio: "",
@@ -141,6 +147,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       };
       await setDoc(docRef, newUser);
       setUserData(newUser);
+    } catch (err: any) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const updateProfile = async (data: Partial<any>) => {
+    if (!user) return;
+    try {
+      const docRef = doc(db, "users", user.uid);
+      await updateDoc(docRef, data);
+      setUserData((prev: any) => ({ ...prev, ...data }));
+    } catch (err: any) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const uploadProfilePhoto = async (file: File) => {
+    if (!user) return "";
+    try {
+      const storageRef = ref(storage, `profiles/${user.uid}/${file.name}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      await updateProfile({ photoURL: url });
+      return url;
     } catch (err: any) {
       setError(err.message);
       throw err;
@@ -159,6 +191,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       signInWithGoogle, 
       signInWithEmail,
       signUpWithEmail,
+      updateProfile,
+      uploadProfilePhoto,
       logout,
       error 
     }}>

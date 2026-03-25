@@ -6,14 +6,18 @@ import { useEffect } from "react";
 import Sidebar from "./Sidebar";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, userData, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push("/login");
+    if (!loading) {
+      if (!user) {
+        router.push("/login");
+      } else if (userData && !userData.completedOnboarding) {
+        router.push("/onboarding");
+      }
     }
-  }, [user, loading, router]);
+  }, [user, userData, loading, router]);
 
   if (loading) {
     return (

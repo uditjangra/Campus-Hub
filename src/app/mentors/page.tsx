@@ -7,20 +7,26 @@ import {
   onSnapshot, 
   doc,
   setDoc,
-  deleteDoc
+  deleteDoc,
+  addDoc,
+  serverTimestamp
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { motion } from "framer-motion";
-import { Search, Star, Award, GraduationCap } from "lucide-react";
+import { Search, Star, Award, GraduationCap, CheckCircle2, Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 const categories = ["All", "Frontend", "Backend", "AI/ML", "Design", "Aptitude"];
 
 export default function MentorsPage() {
   const { user, userData } = useAuth();
+  const router = useRouter();
   const [mentors, setMentors] = useState<any[]>([]);
   const [filter, setFilter] = useState("All");
+  const [requestingId, setRequestingId] = useState<string | null>(null);
+  const [successId, setSuccessId] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, "mentors"));
@@ -30,20 +36,30 @@ export default function MentorsPage() {
     return () => unsubscribe();
   }, []);
 
-  const toggleMentorStatus = async () => {
-    if (!user) return;
-    const isMentor = mentors.find(m => m.id === user.uid);
-    if (isMentor) {
-      await deleteDoc(doc(db, "mentors", user.uid));
-    } else {
-      await setDoc(doc(db, "mentors", user.uid), {
-        name: userData?.displayName,
-        username: userData?.username,
-        skills: userData?.skills || [],
-        bio: userData?.bio || "",
-        rating: 5.0,
-        reviewsCount: 0,
+  const handleRegisterClick = () => {
+    router.push("/mentors/apply");
+  };
+
+  const handleRequestMentorship = async (mentor: any) => {
+    if (!user || requestingId) return;
+    setRequestingId(mentor.id);
+    
+    try {
+      await addDoc(collection(db, "mentorship_requests"), {
+        mentorId: mentor.id,
+        mentorName: mentor.name,
+        requesterId: user.uid,
+        requesterName: userData?.displayName || user.displayName,
+        requesterUsername: userData?.username,
+        status: "pending",
+        createdAt: serverTimestamp(),
       });
+      setSuccessId(mentor.id);
+      setTimeout(() => setSuccessId(null), 3000);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRequestingId(null);
     }
   };
 
@@ -60,12 +76,10 @@ export default function MentorsPage() {
             <p className="text-gray-500 text-sm mt-1">Connect with seniors and experts on campus.</p>
           </div>
           <button 
-            onClick={toggleMentorStatus}
-            className={`px-8 py-3 rounded-full font-bold transition-all duration-300 border-2 ${
-              isUserMentor ? "border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white" : "neon-button"
-            }`}
+            onClick={handleRegisterClick}
+            className={`px-8 py-3 rounded-full font-bold transition-all duration-300 border-2 neon-button`}
           >
-            {isUserMentor ? "Unregister as Mentor" : "Register as Mentor"}
+            {isUserMentor ? "Edit Mentor Profile" : "Register as Mentor"}
           </button>
         </header>
 
@@ -127,8 +141,18 @@ export default function MentorsPage() {
                 ))}
               </div>
 
-              <button className="w-full neon-button py-2 text-sm">
-                Request Mentorship
+              <button 
+                onClick={() => handleRequestMentorship(mentor)}
+                disabled={requestingId === mentor.id || successId === mentor.id}
+                className={`w-full py-2 text-sm rounded-full font-bold transition-all flex items-center justify-center gap-2 ${
+                  successId === mentor.id 
+                    ? "bg-neon-green text-black" 
+                    : "neon-button"
+                }`}
+              >
+                {requestingId === mentor.id ? <Loader2 size={16} className="animate-spin" /> : 
+                 successId === mentor.id ? <><CheckCircle2 size={16} /> Requested</> : 
+                 "Request Mentorship"}
               </button>
             </motion.div>
           ))}
