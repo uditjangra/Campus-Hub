@@ -4,12 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { 
   collection, 
   query, 
-  orderBy, 
   onSnapshot, 
   addDoc, 
   serverTimestamp,
-  where,
-  limit
+  where
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
@@ -35,17 +33,39 @@ export default function ChatPage() {
   const [isSearching, setIsSearching] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const getTimestampValue = (value: any) => {
+    if (!value) return 0;
+    if (typeof value.toMillis === "function") return value.toMillis();
+    if (typeof value.seconds === "number") return value.seconds * 1000;
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
   // Fetch conversations
   useEffect(() => {
     if (!user) return;
     const q = query(
       collection(db, "conversations"),
-      where("participants", "array-contains", user.uid),
-      orderBy("updatedAt", "desc")
+      where("participants", "array-contains", user.uid)
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setConversations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const nextConversations = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => {
+          const aTime =
+            getTimestampValue(a.updatedAt) ||
+            getTimestampValue(a.lastMessageTime) ||
+            getTimestampValue(a.createdAt);
+          const bTime =
+            getTimestampValue(b.updatedAt) ||
+            getTimestampValue(b.lastMessageTime) ||
+            getTimestampValue(b.createdAt);
+
+          return bTime - aTime;
+        });
+
+      setConversations(nextConversations);
     });
     
     return () => unsubscribe();
@@ -64,13 +84,15 @@ export default function ChatPage() {
     if (!selectedContact) return;
 
     const q = query(
-      collection(db, "conversations", selectedContact.id, "messages"), 
-      orderBy("createdAt", "asc"),
-      limit(100)
+      collection(db, "conversations", selectedContact.id, "messages")
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const nextMessages = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => getTimestampValue(a.createdAt) - getTimestampValue(b.createdAt));
+
+      setMessages(nextMessages);
     });
     
     return () => unsubscribe();
