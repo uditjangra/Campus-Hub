@@ -48,6 +48,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const buildUserProfile = (user: User, overrides: Record<string, any> = {}) => ({
+    uid: user.uid,
+    email: user.email,
+    displayName: overrides.displayName ?? user.displayName ?? "",
+    photoURL: overrides.photoURL ?? user.photoURL ?? null,
+    username:
+      overrides.username ??
+      user.email?.split("@")[0] ??
+      `user_${Math.random().toString(36).slice(2, 7)}`,
+    createdAt: overrides.createdAt ?? new Date().toISOString(),
+    completedOnboarding: overrides.completedOnboarding ?? false,
+    branch: overrides.branch ?? "",
+    year: overrides.year ?? "",
+    bio: overrides.bio ?? "",
+    skills: overrides.skills ?? [],
+    interests: overrides.interests ?? [],
+    ...overrides,
+  });
+
   useEffect(() => {
     // Set persistence to LOCAL by default
     setPersistence(auth, browserLocalPersistence).catch(console.error);
@@ -61,8 +80,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           if (docSnap.exists()) {
             setUserData(docSnap.data());
           } else {
-            console.warn("User document not found in Firestore for UID:", user.uid);
-            setUserData(null);
+            const fallbackProfile = buildUserProfile(user);
+            await setDoc(docRef, fallbackProfile, { merge: true });
+            setUserData(fallbackProfile);
           }
         } else {
           setUserData(null);
@@ -89,20 +109,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const docSnap = await getDoc(docRef);
       
       if (!docSnap.exists()) {
-        // Create new user profile
-        const newUser = {
-          uid: user.uid,
-          email: user.email,
-          displayName: user.displayName,
-          photoURL: user.photoURL,
-          username: user.email?.split("@")[0] || "user_" + Math.random().toString(36).slice(2, 7),
-          createdAt: new Date().toISOString(),
-          branch: "",
-          year: "",
-          bio: "",
-          skills: [],
-          interests: [],
-        };
+        const newUser = buildUserProfile(user);
         await setDoc(docRef, newUser);
         setUserData(newUser);
       } else {
@@ -131,20 +138,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const user = result.user;
       
       const docRef = doc(db, "users", user.uid);
-      const newUser = {
-        uid: user.uid,
-        email: user.email,
+      const newUser = buildUserProfile(user, {
         displayName: name,
-        photoURL: null,
         username: email.split("@")[0],
-        createdAt: new Date().toISOString(),
-        completedOnboarding: false,
-        branch: "",
-        year: "",
-        bio: "",
-        skills: [],
-        interests: [],
-      };
+      });
       await setDoc(docRef, newUser);
       setUserData(newUser);
     } catch (err: any) {
@@ -157,8 +154,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (!user) return;
     try {
       const docRef = doc(db, "users", user.uid);
-      await updateDoc(docRef, data);
-      setUserData((prev: any) => ({ ...prev, ...data }));
+      await setDoc(docRef, buildUserProfile(user, data), { merge: true });
+      setUserData((prev: any) => ({ ...(prev || buildUserProfile(user)), ...data }));
     } catch (err: any) {
       setError(err.message);
       throw err;
