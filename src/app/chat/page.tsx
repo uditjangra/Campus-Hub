@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import { 
   collection, 
   query, 
   onSnapshot, 
   addDoc, 
   serverTimestamp,
-  where
+  where,
+  limit
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
@@ -18,7 +19,7 @@ import { getDocs } from "firebase/firestore";
 import { useSearchParams } from "next/navigation";
 import { doc, setDoc, updateDoc } from "firebase/firestore";
 
-export default function ChatPage() {
+function ChatPageContent() {
   const { user, userData } = useAuth();
   const searchParams = useSearchParams();
   const convIdParam = searchParams.get("convId");
@@ -421,5 +422,13 @@ export default function ChatPage() {
         )}
       </AnimatePresence>
     </DashboardLayout>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<DashboardLayout><div className="h-[calc(100vh-160px)] flex items-center justify-center text-sm text-gray-500">Loading chat...</div></DashboardLayout>}>
+      <ChatPageContent />
+    </Suspense>
   );
 }
